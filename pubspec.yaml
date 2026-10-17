@@ -1,0 +1,159 @@
+name: homemaker
+description: HomeMaker — intuitive interior design for phone and tablet.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  collection: ^1.18.0
+  archive: ^3.6.1
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  shared_preferences: ^2.3.2
+  uuid: ^4.5.1
+  vector_math: ^2.1.4
+  google_fonts: ^6.2.1
+  flutter_riverpod: ^2.5.1
+  xml: ^6.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/catalog/catalog.json
+    - assets/catalog/ATTRIBUTIONS.md
+    - assets/catalog/icons/
+    - assets/branding/
+    - assets/catalog/models/blendswap_armchair_1/
+    - assets/catalog/models/blendswap_baby_bed_87/
+    - assets/catalog/models/blendswap_bedside_table_4/
+    - assets/catalog/models/blendswap_bidet_104/
+    - assets/catalog/models/blendswap_bookcase_6/
+    - assets/catalog/models/blendswap_corner_sofa_21/
+    - assets/catalog/models/blendswap_couch_95/
+    - assets/catalog/models/blendswap_desk_75/
+    - assets/catalog/models/blendswap_double_oven_16/
+    - assets/catalog/models/blendswap_drawers_cabinet_144/
+    - assets/catalog/models/blendswap_high_cabinet_146/
+    - assets/catalog/models/blendswap_large_fridge_151/
+    - assets/catalog/models/blendswap_lower_cabinet_153/
+    - assets/catalog/models/blendswap_oven_28/
+    - assets/catalog/models/blendswap_range_hood_161/
+    - assets/catalog/models/blendswap_refrigerator_128/
+    - assets/catalog/models/blendswap_shower_head_and_faucet_40/
+    - assets/catalog/models/blendswap_shower_stall_131/
+    - assets/catalog/models/blendswap_sink_cabinet_165/
+    - assets/catalog/models/blendswap_small_upper_cabinet_166/
+    - assets/catalog/models/blendswap_technical_table_49/
+    - assets/catalog/models/blendswap_television_cabinet_52/
+    - assets/catalog/models/blendswap_toilet_unit_57/
+    - assets/catalog/models/blendswap_winchester_armchair_139/
+    - assets/catalog/models/blendswap_winchester_sofa_140/
+    - assets/catalog/models/contributions_bath_l_shape_357/
+    - assets/catalog/models/contributions_computer_desk_104/
+    - assets/catalog/models/contributions_computer_desk_53/
+    - assets/catalog/models/contributions_corner_desk_111/
+    - assets/catalog/models/contributions_couch_table_465/
+    - assets/catalog/models/contributions_couch_two_seats_190/
+    - assets/catalog/models/contributions_dishwasher_227/
+    - assets/catalog/models/contributions_fridge_149/
+    - assets/catalog/models/contributions_futon_243/
+    - assets/catalog/models/contributions_gray_cabinet_with_basin_116/
+    - assets/catalog/models/contributions_hood_146/
+    - assets/catalog/models/contributions_large_couch_261/
+    - assets/catalog/models/contributions_loft_bed_15/
+    - assets/catalog/models/contributions_microwave_34/
+    - assets/catalog/models/contributions_microwave_cabinet_35/
+    - assets/catalog/models/contributions_opened_sofa_bed_331/
+    - assets/catalog/models/contributions_pc_table_291/
+    - assets/catalog/models/contributions_planters_desk_157/
+    - assets/catalog/models/contributions_red_cabinet_with_basin_141/
+    - assets/catalog/models/contributions_school_desk_293/
+    - assets/catalog/models/contributions_secretary_s_desk_188/
+    - assets/catalog/models/contributions_sofa_bed_330/
+    - assets/catalog/models/contributions_square_coffee_table_65/
+    - assets/catalog/models/contributions_stove_214/
+    - assets/catalog/models/contributions_tv_shelf_unit_338/
+    - assets/catalog/models/contributions_washbasin_with_cabinet_1/
+    - assets/catalog/models/contributions_wood_cabinet_with_sink_226/
+    - assets/catalog/models/contributions_wooden_coffee_table_70/
+    - assets/catalog/models/katorlegaz_armchair_ottoman_48/
+    - assets/catalog/models/katorlegaz_filing_cabinet_74/
+    - assets/catalog/models/katorlegaz_futon_couch_4/
+    - assets/catalog/models/katorlegaz_propane_stove_86/
+    - assets/catalog/models/lucapresidente_angle_shelf_160_14/
+    - assets/catalog/models/lucapresidente_angle_shelf_198_15/
+    - assets/catalog/models/lucapresidente_angle_shelf_80_16/
+    - assets/catalog/models/lucapresidente_bed_cherry_3/
+    - assets/catalog/models/lucapresidente_bedside_table_cherry_1/
+    - assets/catalog/models/lucapresidente_blue_bedside_table_26/
+    - assets/catalog/models/lucapresidente_blue_loft_bed_29/
+    - assets/catalog/models/lucapresidente_desk_extension_17/
+    - assets/catalog/models/lucapresidente_drawer_unit_on_casters_19/
+    - assets/catalog/models/lucapresidente_ladder_34/
+    - assets/catalog/models/lucapresidente_oven_front_64/
+    - assets/catalog/models/lucapresidente_sink_55/
+    - assets/catalog/models/scopia_armchair_23/
+    - assets/catalog/models/scopia_bar_table_72/
+    - assets/catalog/models/scopia_bed_3/
+    - assets/catalog/models/scopia_black_table_26/
+    - assets/catalog/models/scopia_burlap_sofa_76/
+    - assets/catalog/models/scopia_captain_s_bed_344/
+    - assets/catalog/models/scopia_changing_table_193/
+    - assets/catalog/models/scopia_chest_freezer_175/
+    - assets/catalog/models/scopia_children_table_360/
+    - assets/catalog/models/scopia_clear_sofa_32/
+    - assets/catalog/models/scopia_coffee_table_33/
+    - assets/catalog/models/scopia_contemporary_living_room_78/
+    - assets/catalog/models/scopia_convertible_sofa_bz_288/
+    - assets/catalog/models/scopia_cooker_364/
+    - assets/catalog/models/scopia_corner_bathtub_110/
+    - assets/catalog/models/scopia_crib_79/
+    - assets/catalog/models/scopia_day_bed_367/
+    - assets/catalog/models/scopia_deep_fryer_368/
+    - assets/catalog/models/scopia_desk_table_82/
+    - assets/catalog/models/scopia_double_vanity_80/
+    - assets/catalog/models/scopia_dressing_table_290/
+    - assets/catalog/models/scopia_ergonomic_washbasin_468/
+    - assets/catalog/models/scopia_hand_washbasin_475/
+    - assets/catalog/models/scopia_hospital_bed_200/
+    - assets/catalog/models/scopia_hospital_table_on_wheels_477/
+    - assets/catalog/models/scopia_iron_bed_4/
+    - assets/catalog/models/scopia_island_bath_374/
+    - assets/catalog/models/scopia_japanese_toilet_unit_479/
+    - assets/catalog/models/scopia_mixer_tap_for_bath_and_shower_485/
+    - assets/catalog/models/scopia_mixer_tap_for_shower_487/
+    - assets/catalog/models/scopia_modern_armchair_89/
+    - assets/catalog/models/scopia_opened_convertible_sofa_bz_289/
+    - assets/catalog/models/scopia_round_table_338/
+    - assets/catalog/models/scopia_shelves_83/
+    - assets/catalog/models/scopia_shower_armchair_491/
+    - assets/catalog/models/scopia_shower_cabin_492/
+    - assets/catalog/models/scopia_shower_chair_493/
+    - assets/catalog/models/scopia_small_dishwasher_466/
+    - assets/catalog/models/scopia_small_lavatory_121/
+    - assets/catalog/models/scopia_small_oven_342/
+    - assets/catalog/models/scopia_sofa_2_seats_74/
+    - assets/catalog/models/scopia_sofa_37/
+    - assets/catalog/models/scopia_sofa_3_seats_75/
+    - assets/catalog/models/scopia_stone_washbasin_496/
+    - assets/catalog/models/scopia_table_38/
+    - assets/catalog/models/scopia_table_on_trestles_300/
+    - assets/catalog/models/scopia_turkish_toilet_497/
+    - assets/catalog/models/scopia_vanity_73/
+    - assets/catalog/models/scopia_waitress_table_on_wheels_498/
+    - assets/catalog/models/scopia_wardrobe_5/
+    - assets/catalog/models/scopia_washbasin_1/
+    - assets/catalog/models/scopia_wooden_alder_table_93/
+    - assets/catalog/models/scopia_wooden_desk_84/
+    - assets/catalog/models/scopia_wooden_table_94/
+    - assets/catalog/models/scopia_wooden_teak_table_96/
