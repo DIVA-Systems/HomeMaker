@@ -128,6 +128,7 @@ class PlacedFurniture {
     this.rotationDeg = 0,
     this.widthCm,
     this.depthCm,
+    this.elevationCm = 0,
   });
 
   final String id;
@@ -137,6 +138,8 @@ class PlacedFurniture {
   double rotationDeg;
   double? widthCm;
   double? depthCm;
+  /// Height above floor (cm) — SH3D-style elevation.
+  double elevationCm;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -146,6 +149,7 @@ class PlacedFurniture {
         'rotationDeg': rotationDeg,
         'widthCm': widthCm,
         'depthCm': depthCm,
+        'elevationCm': elevationCm,
       };
 
   factory PlacedFurniture.fromJson(Map<String, dynamic> json) =>
@@ -157,6 +161,7 @@ class PlacedFurniture {
         rotationDeg: (json['rotationDeg'] as num?)?.toDouble() ?? 0,
         widthCm: (json['widthCm'] as num?)?.toDouble(),
         depthCm: (json['depthCm'] as num?)?.toDouble(),
+        elevationCm: (json['elevationCm'] as num?)?.toDouble() ?? 0,
       );
 
   PlacedFurniture copy() => PlacedFurniture(
@@ -167,6 +172,68 @@ class PlacedFurniture {
         rotationDeg: rotationDeg,
         widthCm: widthCm,
         depthCm: depthCm,
+        elevationCm: elevationCm,
+      );
+}
+
+/// Straight stair run connecting two levels (2D footprint + 3D steps).
+class StairFlight {
+  StairFlight({
+    required this.id,
+    required this.xCm,
+    required this.yCm,
+    this.rotationDeg = 0,
+    this.widthCm = 90,
+    this.depthCm = 250,
+    this.fromLevelIndex = 0,
+    this.toLevelIndex = 1,
+    this.steps = 14,
+  });
+
+  final String id;
+  double xCm;
+  double yCm;
+  double rotationDeg;
+  double widthCm;
+  double depthCm;
+  int fromLevelIndex;
+  int toLevelIndex;
+  int steps;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'xCm': xCm,
+        'yCm': yCm,
+        'rotationDeg': rotationDeg,
+        'widthCm': widthCm,
+        'depthCm': depthCm,
+        'fromLevelIndex': fromLevelIndex,
+        'toLevelIndex': toLevelIndex,
+        'steps': steps,
+      };
+
+  factory StairFlight.fromJson(Map<String, dynamic> json) => StairFlight(
+        id: json['id'] as String,
+        xCm: (json['xCm'] as num).toDouble(),
+        yCm: (json['yCm'] as num).toDouble(),
+        rotationDeg: (json['rotationDeg'] as num?)?.toDouble() ?? 0,
+        widthCm: (json['widthCm'] as num?)?.toDouble() ?? 90,
+        depthCm: (json['depthCm'] as num?)?.toDouble() ?? 250,
+        fromLevelIndex: (json['fromLevelIndex'] as num?)?.toInt() ?? 0,
+        toLevelIndex: (json['toLevelIndex'] as num?)?.toInt() ?? 1,
+        steps: (json['steps'] as num?)?.toInt() ?? 14,
+      );
+
+  StairFlight copy() => StairFlight(
+        id: id,
+        xCm: xCm,
+        yCm: yCm,
+        rotationDeg: rotationDeg,
+        widthCm: widthCm,
+        depthCm: depthCm,
+        fromLevelIndex: fromLevelIndex,
+        toLevelIndex: toLevelIndex,
+        steps: steps,
       );
 }
 
@@ -236,10 +303,12 @@ class PlanLevel {
     List<Wall>? walls,
     List<WallOpening>? openings,
     List<PlacedFurniture>? furniture,
+    List<StairFlight>? stairs,
     this.elevationCm = 0,
   })  : walls = walls ?? [],
         openings = openings ?? [],
-        furniture = furniture ?? [];
+        furniture = furniture ?? [],
+        stairs = stairs ?? [];
 
   final String id;
   String name;
@@ -247,6 +316,7 @@ class PlanLevel {
   final List<Wall> walls;
   final List<WallOpening> openings;
   final List<PlacedFurniture> furniture;
+  final List<StairFlight> stairs;
 
   PlanLevel copy() => PlanLevel(
         id: id,
@@ -255,6 +325,7 @@ class PlanLevel {
         walls: walls.map((w) => w.copy()).toList(),
         openings: openings.map((o) => o.copy()).toList(),
         furniture: furniture.map((f) => f.copy()).toList(),
+        stairs: stairs.map((s) => s.copy()).toList(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -264,6 +335,7 @@ class PlanLevel {
         'walls': walls.map((w) => w.toJson()).toList(),
         'openings': openings.map((o) => o.toJson()).toList(),
         'furniture': furniture.map((f) => f.toJson()).toList(),
+        'stairs': stairs.map((s) => s.toJson()).toList(),
       };
 
   factory PlanLevel.fromJson(Map<String, dynamic> json) => PlanLevel(
@@ -278,6 +350,9 @@ class PlanLevel {
             .toList(),
         furniture: (json['furniture'] as List<dynamic>? ?? [])
             .map((e) => PlacedFurniture.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        stairs: (json['stairs'] as List<dynamic>? ?? [])
+            .map((e) => StairFlight.fromJson(e as Map<String, dynamic>))
             .toList(),
       );
 }
@@ -319,6 +394,7 @@ class FloorPlan {
   List<Wall> get walls => activeLevel.walls;
   List<WallOpening> get openings => activeLevel.openings;
   List<PlacedFurniture> get furniture => activeLevel.furniture;
+  List<StairFlight> get stairs => activeLevel.stairs;
 
   factory FloorPlan.blank({String name = 'Untitled plan'}) => FloorPlan(
         id: _uuid.v4(),

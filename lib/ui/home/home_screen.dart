@@ -7,6 +7,7 @@ import '../../state/providers.dart';
 import '../../theme/hm_colors.dart';
 import '../common/hm_buttons.dart';
 import '../editor/editor_screen.dart';
+import '../settings/settings_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -37,6 +38,16 @@ class HomeScreen extends ConsumerWidget {
             expandedHeight: isWide ? 168 : 148,
             title: const Text('HomeMaker'),
             actions: [
+              CupertinoButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    CupertinoPageRoute<void>(
+                      builder: (_) => const SettingsScreen(),
+                    ),
+                  );
+                },
+                child: const Icon(CupertinoIcons.settings),
+              ),
               CupertinoButton(
                 onPressed: () => _showAbout(context, catalogAsync.valueOrNull?.length ?? 0),
                 child: const Icon(CupertinoIcons.info),
@@ -194,7 +205,7 @@ class _EmptyHome extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.home_work_outlined, size: 56, color: HmColors.spruceSoft),
+          const Icon(Icons.home_work_outlined, size: 56, color: HmColors.spruceSoft),
           const SizedBox(height: 16),
           Text('No plans yet', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),

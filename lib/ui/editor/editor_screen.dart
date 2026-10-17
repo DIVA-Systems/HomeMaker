@@ -146,6 +146,13 @@ class _TabletEditor extends ConsumerWidget {
                               child:
                                   _HintBar(text: 'Tap a wall to place a window'),
                             ),
+                          if (state.tool == EditorTool.stair)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 10),
+                              child: _HintBar(
+                                text: 'Tap to place a stair run between floors',
+                              ),
+                            ),
                           if (state.tool == EditorTool.select)
                             const Padding(
                               padding: EdgeInsets.only(bottom: 10),
@@ -246,6 +253,8 @@ class _PhoneEditor extends ConsumerWidget {
             : 'Tap plan to place · swipe dock for more';
       case EditorTool.erase:
         return 'Tap a wall, opening, or piece to remove';
+      case EditorTool.stair:
+        return 'Tap to place a stair run between floors';
       case EditorTool.select:
         return 'Pan · pinch zoom · drag items · use rotate handle';
     }

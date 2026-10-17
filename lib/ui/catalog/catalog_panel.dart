@@ -2,10 +2,12 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/app_settings.dart';
 import '../../models/catalog_item.dart';
 import '../../models/floor_plan.dart';
 import '../../state/providers.dart';
 import '../../theme/hm_colors.dart';
+import '../../units/length_units.dart';
 
 class CatalogPanel extends ConsumerWidget {
   const CatalogPanel({
@@ -126,6 +128,7 @@ class CatalogPanel extends ConsumerWidget {
                   return _CatalogTile(
                     item: item,
                     selected: selected,
+                    unitSystem: ref.watch(appSettingsProvider).unitSystem,
                     onTap: () => notifier.beginPlacing(item.id),
                   );
                 },
@@ -143,11 +146,13 @@ class _CatalogTile extends StatelessWidget {
     required this.item,
     required this.selected,
     required this.onTap,
+    required this.unitSystem,
   });
 
   final CatalogItem item;
   final bool selected;
   final VoidCallback onTap;
+  final LengthUnitSystem unitSystem;
 
   @override
   Widget build(BuildContext context) {
@@ -183,7 +188,7 @@ class _CatalogTile extends StatelessWidget {
                       child: Image.asset(
                         item.iconPath,
                         fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => Icon(
+                        errorBuilder: (_, __, ___) => const Icon(
                           Icons.weekend_outlined,
                           color: HmColors.inkTertiary,
                         ),
@@ -199,8 +204,7 @@ class _CatalogTile extends StatelessWidget {
                   style: Theme.of(context).textTheme.labelMedium,
                 ),
                 Text(
-                  '${(item.widthCm / 100).toStringAsFixed(1)}×'
-                  '${(item.depthCm / 100).toStringAsFixed(1)} m',
+                  Units.formatSize2d(item.widthCm, item.depthCm, unitSystem),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],

@@ -1,11 +1,8 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:uuid/uuid.dart';
-
 import '../models/floor_plan.dart';
 
-const _uuid = Uuid();
 const _joinTol = 18.0; // cm — snap endpoints into a graph
 
 /// Detect closed rooms from wall segments (SH3D-style floor fills).

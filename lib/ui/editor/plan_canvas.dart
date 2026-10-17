@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../data/app_settings.dart';
 import '../../models/catalog_item.dart';
 import '../../models/floor_plan.dart';
 import '../../state/providers.dart';
 import '../../theme/hm_colors.dart';
+import '../../units/length_units.dart';
 
 const _uuid = Uuid();
 const _canvasSize = Size(3200, 2400);
@@ -99,8 +101,8 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
     final dy = vh / 2 - cy * scale;
 
     _transform.value = Matrix4.identity()
-      ..translate(dx, dy)
-      ..scale(scale);
+      ..translateByDouble(dx, dy, 0, 1)
+      ..scaleByDouble(scale, scale, scale, 1);
     _didFit = true;
     _lastFitNonce = widget.fitNonce;
   }
@@ -113,15 +115,14 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
   double _snap(double v) => (v / _snapCm).round() * _snapCm;
   Offset _snapPoint(Offset p) => Offset(_snap(p.dx), _snap(p.dy));
 
-  Offset _resolveWallStart(Offset raw, EditorState state) {
+  Offset _resolveWallStart(Offset raw, EditorState state, bool magnetism) {
     var p = _snapPoint(raw);
-    // Magnetism to existing endpoints
+    if (!magnetism) return p;
     for (final w in state.plan.walls) {
       for (final ep in [w.start, w.end]) {
         if ((ep - p).distance <= _chainTol) return ep;
       }
     }
-    // Continue chain from last wall end
     final chain = state.wallChainFrom;
     if (chain != null && (chain - p).distance <= _chainTol * 2) {
       return chain;
@@ -142,6 +143,7 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? HmColors.canvasDark : HmColors.canvas;
+    final settings = ref.watch(appSettingsProvider);
 
     return ColoredBox(
       color: bg,
@@ -157,8 +159,10 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
 
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onScaleStart: (d) => _onScaleStart(d, state, catalog),
-            onScaleUpdate: (d) => _onScaleUpdate(d, state, catalog),
+            onScaleStart: (d) =>
+                _onScaleStart(d, state, catalog, settings.magnetism),
+            onScaleUpdate: (d) =>
+                _onScaleUpdate(d, state, catalog, settings.magnetism),
             onScaleEnd: (_) => _onScaleEnd(state),
             onTapUp: (d) => _onTap(d.localPosition, state, catalog),
             onLongPress: () {
@@ -193,6 +197,8 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
                               draftEnd: _wallCurrent,
                               chainFrom: state.wallChainFrom,
                               isDark: isDark,
+                              unitSystem: settings.unitSystem,
+                              showDimensions: settings.showDimensions,
                             ),
                           ),
                         ),
@@ -203,6 +209,7 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
                       bottom: 12,
                       child: _CompassScaleOverlay(
                         planScale: _transform.value.getMaxScaleOnAxis(),
+                        unitSystem: settings.unitSystem,
                       ),
                     ),
                   ],
@@ -219,6 +226,7 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
     ScaleStartDetails d,
     EditorState state,
     List<CatalogItem> catalog,
+    bool magnetism,
   ) {
     _startMatrix = Matrix4.copy(_transform.value);
     _startScale = _transform.value.getMaxScaleOnAxis();
@@ -235,7 +243,7 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
     switch (state.tool) {
       case EditorTool.wall:
         _mode = _GestureMode.wall;
-        _wallStart = _resolveWallStart(planPt, state);
+        _wallStart = _resolveWallStart(planPt, state, magnetism);
         _wallCurrent = _wallStart;
         setState(() {});
         return;
@@ -243,6 +251,7 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
       case EditorTool.window:
       case EditorTool.erase:
       case EditorTool.place:
+      case EditorTool.stair:
         _mode = _GestureMode.pan;
         return;
       case EditorTool.select:
@@ -280,15 +289,17 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
     ScaleUpdateDetails d,
     EditorState state,
     List<CatalogItem> catalog,
+    bool magnetism,
   ) {
     if (_mode == _GestureMode.wall && _wallStart != null) {
       var end = _snapPoint(_sceneToPlan(d.localFocalPoint));
-      // Snap end to nearby endpoints
-      for (final w in state.plan.walls) {
-        for (final ep in [w.start, w.end]) {
-          if ((ep - end).distance <= _chainTol) {
-            end = ep;
-            break;
+      if (magnetism) {
+        for (final w in state.plan.walls) {
+          for (final ep in [w.start, w.end]) {
+            if ((ep - end).distance <= _chainTol) {
+              end = ep;
+              break;
+            }
           }
         }
       }
@@ -350,18 +361,18 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
       final focalPlan =
           MatrixUtils.transformPoint(Matrix4.inverted(m), focal);
       m
-        ..translate(focalPlan.dx, focalPlan.dy)
-        ..scale(factor)
-        ..translate(-focalPlan.dx, -focalPlan.dy);
+        ..translateByDouble(focalPlan.dx, focalPlan.dy, 0, 1)
+        ..scaleByDouble(factor, factor, factor, 1)
+        ..translateByDouble(-focalPlan.dx, -focalPlan.dy, 0, 1);
       final moved = focal - (_lastFocalScene ?? focal);
-      m.translate(moved.dx, moved.dy);
+      m.translateByDouble(moved.dx, moved.dy, 0, 1);
       _transform.value = m;
       return;
     }
 
     _gestureTravel += d.focalPointDelta.distance;
     final m = Matrix4.copy(_transform.value);
-    m.translate(d.focalPointDelta.dx, d.focalPointDelta.dy);
+    m.translateByDouble(d.focalPointDelta.dx, d.focalPointDelta.dy, 0, 1);
     _transform.value = m;
   }
 
@@ -413,6 +424,25 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
     }
     final planPt = _snapPoint(_sceneToPlan(scene));
 
+    if (state.tool == EditorTool.stair) {
+      final to = math.min(
+        state.plan.activeLevelIndex + 1,
+        math.max(1, state.plan.levels.length),
+      );
+      _editor.placeStair(
+        StairFlight(
+          id: _uuid.v4(),
+          xCm: planPt.dx,
+          yCm: planPt.dy,
+          fromLevelIndex: state.plan.activeLevelIndex,
+          toLevelIndex: to == state.plan.activeLevelIndex
+              ? state.plan.activeLevelIndex + 1
+              : to,
+        ),
+      );
+      return;
+    }
+
     if (state.tool == EditorTool.door || state.tool == EditorTool.window) {
       final hit = _nearestWall(planPt, state.plan);
       if (hit == null) return;
@@ -459,6 +489,12 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
         _editor.removeSelected();
         return;
       }
+      final hitS = _hitStair(planPt, state.plan);
+      if (hitS != null) {
+        _editor.selectFurniture(hitS);
+        _editor.removeSelected();
+        return;
+      }
       final hitF = _hitFurniture(planPt, state.plan, catalog);
       if (hitF != null) {
         _editor.selectFurniture(hitF);
@@ -477,6 +513,11 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
       final open = _hitOpening(planPt, state);
       if (open != null) {
         _editor.selectOpening(open);
+        return;
+      }
+      final hitS = _hitStair(planPt, state.plan);
+      if (hitS != null) {
+        _editor.selectFurniture(hitS);
         return;
       }
       final hitF = _hitFurniture(planPt, state.plan, catalog);
@@ -553,6 +594,20 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
     return null;
   }
 
+  String? _hitStair(Offset p, FloorPlan plan) {
+    final scale = _transform.value.getMaxScaleOnAxis();
+    final slop = math.max(12.0, 28.0 / scale);
+    for (final s in plan.stairs.reversed) {
+      final rect = Rect.fromCenter(
+        center: Offset(s.xCm, s.yCm),
+        width: s.widthCm,
+        height: s.depthCm,
+      );
+      if (rect.inflate(slop).contains(p)) return s.id;
+    }
+    return null;
+  }
+
   String? _hitFurniture(
     Offset p,
     FloorPlan plan,
@@ -586,15 +641,20 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
 }
 
 class _CompassScaleOverlay extends StatelessWidget {
-  const _CompassScaleOverlay({required this.planScale});
+  const _CompassScaleOverlay({
+    required this.planScale,
+    required this.unitSystem,
+  });
   final double planScale;
+  final LengthUnitSystem unitSystem;
 
   @override
   Widget build(BuildContext context) {
-    // 1 m in plan cm = 100; screen pixels for 1 m = 100 * planScale
-    final meterPx = 100 * planScale;
-    final barWidth = meterPx.clamp(40.0, 120.0);
-    final meters = barWidth / meterPx;
+    // Prefer ~1 m (metric) or ~3 ft (imperial) on screen.
+    final targetCm = unitSystem == LengthUnitSystem.metric ? 100.0 : 91.44;
+    final targetPx = targetCm * planScale;
+    final barWidth = targetPx.clamp(40.0, 120.0);
+    final barCm = barWidth / planScale;
 
     return IgnorePointer(
       child: Row(
@@ -632,9 +692,7 @@ class _CompassScaleOverlay extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  meters >= 0.95
-                      ? '${meters.round()} m'
-                      : '${(meters * 100).round()} cm',
+                  Units.formatScaleBar(barCm, unitSystem),
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: HmColors.inkSecondary,
                       ),
@@ -700,6 +758,8 @@ class _PlanPainter extends CustomPainter {
     required this.draftEnd,
     required this.chainFrom,
     required this.isDark,
+    required this.unitSystem,
+    required this.showDimensions,
   });
 
   final FloorPlan plan;
@@ -713,6 +773,8 @@ class _PlanPainter extends CustomPainter {
   final Offset? draftEnd;
   final Offset? chainFrom;
   final bool isDark;
+  final LengthUnitSystem unitSystem;
+  final bool showDimensions;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -727,7 +789,8 @@ class _PlanPainter extends CustomPainter {
       final fill = Paint()
         ..color = HmColors.roomFill.withValues(alpha: 0.22 + (i % 3) * 0.06);
       canvas.drawPath(path, fill);
-      final label = '${room.name}\n${room.areaM2.toStringAsFixed(1)} m²';
+      final label =
+          '${room.name}\n${Units.formatAreaM2(room.areaM2, unitSystem)}';
       _drawLabel(canvas, room.centroid, label, multi: true);
     }
 
@@ -757,14 +820,16 @@ class _PlanPainter extends CustomPainter {
         Paint()..color = selected ? HmColors.spruceSoft : HmColors.wall,
       );
 
-      // Persistent dimension
-      final mid = Offset((w.start.dx + w.end.dx) / 2, (w.start.dy + w.end.dy) / 2);
-      final n = _normal(w);
-      _drawLabel(
-        canvas,
-        mid + n * 18,
-        '${(w.lengthCm / 100).toStringAsFixed(2)} m',
-      );
+      if (showDimensions) {
+        final mid =
+            Offset((w.start.dx + w.end.dx) / 2, (w.start.dy + w.end.dy) / 2);
+        final n = _normal(w);
+        _drawLabel(
+          canvas,
+          mid + n * 18,
+          Units.formatLength(w.lengthCm, unitSystem),
+        );
+      }
     }
 
     // Openings
@@ -811,8 +876,12 @@ class _PlanPainter extends CustomPainter {
           (draftStart!.dx + draftEnd!.dx) / 2,
           (draftStart!.dy + draftEnd!.dy) / 2 - 20,
         ),
-        '${(len / 100).toStringAsFixed(2)} m',
+        Units.formatLength(len, unitSystem),
       );
+    }
+
+    for (final s in plan.stairs) {
+      _drawStair(canvas, s, s.id == selectedFurnitureId);
     }
 
     for (final f in plan.furniture) {
@@ -862,6 +931,49 @@ class _PlanPainter extends CustomPainter {
     final len = d.distance;
     if (len < 1e-3) return const Offset(0, -1);
     return Offset(-d.dy / len, d.dx / len);
+  }
+
+  void _drawStair(Canvas canvas, StairFlight s, bool selected) {
+    canvas.save();
+    canvas.translate(s.xCm, s.yCm);
+    canvas.rotate(s.rotationDeg * math.pi / 180);
+    final rect =
+        Rect.fromCenter(center: Offset.zero, width: s.widthCm, height: s.depthCm);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(4)),
+      Paint()
+        ..color = selected
+            ? HmColors.spruce.withValues(alpha: 0.2)
+            : const Color(0x33B9A88E),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(4)),
+      Paint()
+        ..color = selected ? HmColors.spruce : const Color(0xFF8A7A62)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = selected ? 2.5 : 1.4,
+    );
+    const steps = 8;
+    for (var i = 1; i < steps; i++) {
+      final y = -s.depthCm / 2 + s.depthCm * i / steps;
+      canvas.drawLine(
+        Offset(-s.widthCm / 2 + 4, y),
+        Offset(s.widthCm / 2 - 4, y),
+        Paint()
+          ..color = const Color(0xFF8A7A62)
+          ..strokeWidth = 1.2,
+      );
+    }
+    // Direction arrow toward "up"
+    canvas.drawLine(
+      Offset(0, s.depthCm / 2 - 8),
+      Offset(0, -s.depthCm / 2 + 8),
+      Paint()
+        ..color = HmColors.spruce
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.restore();
   }
 
   void _drawOpening(Canvas canvas, Wall wall, WallOpening o, bool selected) {

@@ -67,19 +67,19 @@ class WelcomeScreen extends ConsumerWidget {
                         ),
                   ),
                   const SizedBox(height: 28),
-                  _Bullet(
+                  const _Bullet(
                     icon: Icons.border_color_outlined,
                     title: 'Draw the plan',
                     body: 'Drag walls on a paper-like canvas. Measurements stay honest.',
                   ),
                   const SizedBox(height: 14),
-                  _Bullet(
+                  const _Bullet(
                     icon: Icons.chair_outlined,
                     title: 'Furnish freely',
                     body: '124 real models from Sweet Home 3D — Free Art, CC-BY, and CC0.',
                   ),
                   const SizedBox(height: 14),
-                  _Bullet(
+                  const _Bullet(
                     icon: Icons.threed_rotation,
                     title: 'Check the space',
                     body: 'Orbit an isometric view before you commit to a layout.',

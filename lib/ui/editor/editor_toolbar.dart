@@ -129,6 +129,22 @@ class EditorToolbar extends ConsumerWidget {
                       tooltip: 'Rotate 15°',
                       onTap: () => notifier.rotateSelected(),
                     ),
+                    if (state.selectedFurnitureId != null &&
+                        state.plan.furniture
+                            .any((f) => f.id == state.selectedFurnitureId)) ...[
+                      HmIconChip(
+                        icon: Icons.vertical_align_top,
+                        selected: false,
+                        tooltip: 'Raise elevation +5 cm',
+                        onTap: () => notifier.nudgeSelectedElevation(5),
+                      ),
+                      HmIconChip(
+                        icon: Icons.vertical_align_bottom,
+                        selected: false,
+                        tooltip: 'Lower elevation −5 cm',
+                        onTap: () => notifier.nudgeSelectedElevation(-5),
+                      ),
+                    ],
                     HmIconChip(
                       icon: CupertinoIcons.trash,
                       selected: false,
@@ -237,6 +253,12 @@ class EditorToolRail extends ConsumerWidget {
               selected: state.tool == EditorTool.window,
               tooltip: 'Window',
               onTap: () => notifier.setTool(EditorTool.window),
+            ),
+            HmIconChip(
+              icon: Icons.stairs,
+              selected: state.tool == EditorTool.stair,
+              tooltip: 'Stairs',
+              onTap: () => notifier.setTool(EditorTool.stair),
             ),
             HmIconChip(
               icon: Icons.weekend_outlined,

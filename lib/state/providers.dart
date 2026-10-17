@@ -44,6 +44,7 @@ enum EditorTool {
   wall,
   door,
   window,
+  stair,
   place,
   erase,
 }
@@ -367,10 +368,63 @@ class EditorNotifier extends StateNotifier<EditorState> {
     _commit(plan);
   }
 
+  void setSelectedElevation(double elevationCm) {
+    final id = state.selectedFurnitureId;
+    if (id == null) return;
+    _pushHistory();
+    final plan = state.plan.copy();
+    final i = plan.furniture.indexWhere((f) => f.id == id);
+    if (i < 0) return;
+    plan.furniture[i].elevationCm = elevationCm.clamp(0, 300);
+    _commit(plan, redetectRooms: false);
+  }
+
+  void nudgeSelectedElevation(double deltaCm) {
+    final id = state.selectedFurnitureId;
+    if (id == null) return;
+    final i = state.plan.furniture.indexWhere((f) => f.id == id);
+    if (i < 0) return;
+    setSelectedElevation(state.plan.furniture[i].elevationCm + deltaCm);
+  }
+
+  void placeStair(StairFlight stair) {
+    _pushHistory();
+    final plan = state.plan.copy();
+    // Ensure destination level exists
+    while (plan.levels.length <= stair.toLevelIndex) {
+      final n = plan.levels.length + 1;
+      plan.levels.add(
+        PlanLevel(
+          id: _uuid.v4(),
+          name: n == 2 ? 'Upper floor' : 'Level $n',
+          elevationCm: (n - 1) * 280.0,
+        ),
+      );
+    }
+    plan.stairs.add(stair);
+    _commit(
+      plan,
+      patch: (s) => s.copyWith(
+        tool: EditorTool.select,
+        clearFurniture: true,
+        clearOpening: true,
+      ),
+    );
+  }
+
   void removeSelected() {
     _pushHistory();
     final plan = state.plan.copy();
     if (state.selectedFurnitureId != null) {
+      // Stairs reuse furniture selection id space via selectedFurnitureId prefix? 
+      // Stairs deleted via selectedOpeningId path below if we select them as openings.
+      final stairIdx =
+          plan.stairs.indexWhere((s) => s.id == state.selectedFurnitureId);
+      if (stairIdx >= 0) {
+        plan.stairs.removeAt(stairIdx);
+        _commit(plan, patch: (s) => s.copyWith(clearFurniture: true));
+        return;
+      }
       plan.furniture.removeWhere((f) => f.id == state.selectedFurnitureId);
       _commit(plan, patch: (s) => s.copyWith(clearFurniture: true));
       return;
