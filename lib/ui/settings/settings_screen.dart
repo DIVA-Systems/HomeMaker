@@ -23,7 +23,8 @@ class SettingsScreen extends ConsumerWidget {
           Text('Units', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 6),
           Text(
-            'Plans are stored in centimeters. Choose how lengths appear.',
+            'Used for walls, rooms, catalog furniture sizes, and the scale bar. '
+            'You can also toggle m/ft from the plan toolbar.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),
@@ -46,8 +47,8 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 8),
           Text(
             settings.unitSystem == LengthUnitSystem.metric
-                ? 'Example: ${Units.formatLength(320, LengthUnitSystem.metric)}'
-                : 'Example: ${Units.formatLength(320, LengthUnitSystem.imperial)}',
+                ? 'Furniture example: ${Units.formatSize2d(220, 90, LengthUnitSystem.metric)}'
+                : 'Furniture example: ${Units.formatSize2d(220, 90, LengthUnitSystem.imperial)}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: HmColors.spruceSoft,
                 ),

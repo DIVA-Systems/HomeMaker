@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:vector_math/vector_math_64.dart' hide Colors;
 
 import '../../data/app_settings.dart';
+import '../../data/plan_io.dart';
 import '../../geometry/obj_mesh.dart';
 import '../../models/catalog_item.dart';
 import '../../models/floor_plan.dart';
@@ -68,7 +69,7 @@ class _Preview3dScreenState extends ConsumerState<Preview3dScreen>
     final byId = {for (final c in catalog) c.id: c};
     for (final f in widget.plan.furniture) {
       final item = byId[f.catalogId];
-      if (item == null) continue;
+      if (item == null || !item.hasModel) continue;
       if (_meshes.containsKey(item.id)) continue;
       _meshes[item.id] = await ObjMesh.loadAsset(item.modelPath);
     }
@@ -93,21 +94,26 @@ class _Preview3dScreenState extends ConsumerState<Preview3dScreen>
     super.dispose();
   }
 
+  Future<List<int>?> _grabPngBytes({double pixelRatio = 2.0}) async {
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+    final boundary =
+        _shotKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) return null;
+    final image = await boundary.toImage(pixelRatio: pixelRatio);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    return bytes?.buffer.asUint8List();
+  }
+
   Future<void> _capturePhoto() async {
     try {
       setState(() => _status = 'Capturing…');
-      await Future<void>.delayed(const Duration(milliseconds: 40));
-      final boundary =
-          _shotKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) return;
-      final image = await boundary.toImage(pixelRatio: 2.5);
-      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (bytes == null) return;
+      final png = await _grabPngBytes(pixelRatio: 2.5);
+      if (png == null) return;
       final dir = await getTemporaryDirectory();
       final file = File(
         '${dir.path}/homemaker_${DateTime.now().millisecondsSinceEpoch}.png',
       );
-      await file.writeAsBytes(bytes.buffer.asUint8List());
+      await file.writeAsBytes(png);
       await Share.shareXFiles(
         [XFile(file.path)],
         text: '${widget.plan.name} — HomeMaker 3D',
@@ -115,6 +121,32 @@ class _Preview3dScreenState extends ConsumerState<Preview3dScreen>
       if (mounted) setState(() => _status = 'Photo shared');
     } catch (_) {
       if (mounted) setState(() => _status = 'Capture failed');
+    }
+  }
+
+  Future<void> _captureTurntable() async {
+    try {
+      setState(() {
+        _mode = _ViewMode.orbit;
+        _status = 'Recording turntable…';
+      });
+      final startYaw = _yaw;
+      const frames = 24;
+      final pngs = <List<int>>[];
+      for (var i = 0; i < frames; i++) {
+        setState(() {
+          _yaw = startYaw + (i / frames) * math.pi * 2;
+          _status = 'Frame ${i + 1}/$frames';
+        });
+        await WidgetsBinding.instance.endOfFrame;
+        final png = await _grabPngBytes(pixelRatio: 1.5);
+        if (png != null) pngs.add(png);
+      }
+      setState(() => _yaw = startYaw);
+      await PlanIo.shareTurntableZip(pngs);
+      if (mounted) setState(() => _status = 'Turntable shared');
+    } catch (_) {
+      if (mounted) setState(() => _status = 'Turntable failed');
     }
   }
 
@@ -129,6 +161,11 @@ class _Preview3dScreenState extends ConsumerState<Preview3dScreen>
       appBar: AppBar(
         title: Text(widget.plan.name),
         actions: [
+          IconButton(
+            tooltip: 'Turntable video frames',
+            onPressed: _captureTurntable,
+            icon: const Icon(Icons.videocam_outlined),
+          ),
           IconButton(
             tooltip: 'Take photo',
             onPressed: _capturePhoto,
@@ -223,8 +260,8 @@ class _Preview3dScreenState extends ConsumerState<Preview3dScreen>
                   child: Text(
                     _status ??
                         (_mode == _ViewMode.orbit
-                            ? 'Drag orbit · pinch zoom · camera for photo'
-                            : 'Drag to look · stick to walk · camera for photo'),
+                            ? 'Orbit · pinch · photo / turntable'
+                            : 'Look · stick · photo / turntable'),
                     textAlign: TextAlign.right,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Colors.white,
@@ -366,10 +403,11 @@ class _Home3dPainter extends CustomPainter {
       final mesh = item == null ? null : meshes[item.id];
       final elev = floorY + f.elevationCm;
       final rot = f.rotationDeg * math.pi / 180;
+      final mat = f.materialColor ?? HmColors.spruceSoft;
       if (mesh != null) {
-        _mesh(world, mesh, f.xCm, elev, f.yCm, ww, hh, dd, rot, HmColors.spruceSoft, light);
+        _mesh(world, mesh, f.xCm, elev, f.yCm, ww, hh, dd, rot, mat, light);
       } else {
-        _box(world, f.xCm, elev, f.yCm, ww, hh, dd, rot, HmColors.spruceSoft, light);
+        _box(world, f.xCm, elev, f.yCm, ww, hh, dd, rot, mat, light);
       }
     }
 

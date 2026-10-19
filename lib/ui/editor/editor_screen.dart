@@ -123,7 +123,7 @@ class _TabletEditor extends ConsumerWidget {
                               padding: EdgeInsets.only(bottom: 10),
                               child: _HintBar(
                                 text:
-                                    'Tap plan to place · drag empty area to pan · pinch to zoom',
+                                    'Tap or drag from catalog · use +/− to zoom',
                               ),
                             ),
                           if (state.tool == EditorTool.wall)
@@ -158,7 +158,7 @@ class _TabletEditor extends ConsumerWidget {
                               padding: EdgeInsets.only(bottom: 10),
                               child: _HintBar(
                                 text:
-                                    'Pan · move furniture · drag rotate handle when selected',
+                                    'Select wall · drag end handles to resize · tap again for length',
                               ),
                             ),
                           Center(child: EditorToolRail(planSeed: plan)),
@@ -256,7 +256,7 @@ class _PhoneEditor extends ConsumerWidget {
       case EditorTool.stair:
         return 'Tap to place a stair run between floors';
       case EditorTool.select:
-        return 'Pan · pinch zoom · drag items · use rotate handle';
+        return 'Select wall · drag end handles to resize · tap wall again for length';
     }
   }
 }

@@ -1,7 +1,12 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
+import '../../data/plan_io.dart';
 import '../../models/floor_plan.dart';
 import '../../state/providers.dart';
 import '../../theme/hm_colors.dart';
@@ -16,6 +21,58 @@ class HomeScreen extends ConsumerWidget {
     final storage = ref.read(planStorageProvider);
     final plan = starter ? FloorPlan.starter() : FloorPlan.blank();
     await storage.save(plan);
+    ref.invalidate(plansProvider);
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(builder: (_) => EditorScreen(plan: plan)),
+    );
+    ref.invalidate(plansProvider);
+  }
+
+  Future<void> _importPlan(BuildContext context, WidgetRef ref) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['hmplan', 'json'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    String? raw = file.bytes != null ? String.fromCharCodes(file.bytes!) : null;
+    if (raw == null && file.path != null) {
+      raw = await File(file.path!).readAsString();
+    }
+    if (raw == null) return;
+    final decoded = PlanIo.decodeHmplan(raw);
+    if (decoded == null) {
+      if (context.mounted) {
+        showCupertinoDialog<void>(
+          context: context,
+          builder: (ctx) => CupertinoAlertDialog(
+            title: const Text('Couldn’t open plan'),
+            content: const Text('That file isn’t a valid HomeMaker .hmplan.'),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+    // New id so import doesn’t overwrite an existing home plan.
+    final copy = decoded.copy();
+    final plan = FloorPlan(
+      id: const Uuid().v4(),
+      name: '${copy.name} (imported)',
+      levels: copy.levels,
+      activeLevelIndex: copy.activeLevelIndex,
+      unitsPerCm: copy.unitsPerCm,
+      roomNames: Map<String, String>.from(copy.roomNames),
+      overlay: copy.overlay,
+    );
+    await ref.read(planStorageProvider).save(plan);
     ref.invalidate(plansProvider);
     if (!context.mounted) return;
     await Navigator.of(context).push(
@@ -71,6 +128,11 @@ class HomeScreen extends ConsumerWidget {
                   HmGhostButton(
                     label: 'Blank plan',
                     onPressed: () => _newPlan(context, ref, starter: false),
+                  ),
+                  const SizedBox(width: 8),
+                  HmGhostButton(
+                    label: 'Import',
+                    onPressed: () => _importPlan(context, ref),
                   ),
                 ],
               ),

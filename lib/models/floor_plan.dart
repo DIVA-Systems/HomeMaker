@@ -4,6 +4,8 @@ import 'dart:ui';
 
 import 'package:uuid/uuid.dart';
 
+import 'plan_overlay.dart';
+
 const _uuid = Uuid();
 
 enum OpeningKind { door, window }
@@ -129,6 +131,7 @@ class PlacedFurniture {
     this.widthCm,
     this.depthCm,
     this.elevationCm = 0,
+    this.colorArgb,
   });
 
   final String id;
@@ -140,6 +143,11 @@ class PlacedFurniture {
   double? depthCm;
   /// Height above floor (cm) — SH3D-style elevation.
   double elevationCm;
+  /// Optional material tint (ARGB). Null = catalog default.
+  int? colorArgb;
+
+  Color? get materialColor =>
+      colorArgb == null ? null : Color(colorArgb!);
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -150,6 +158,7 @@ class PlacedFurniture {
         'widthCm': widthCm,
         'depthCm': depthCm,
         'elevationCm': elevationCm,
+        if (colorArgb != null) 'colorArgb': colorArgb,
       };
 
   factory PlacedFurniture.fromJson(Map<String, dynamic> json) =>
@@ -162,6 +171,7 @@ class PlacedFurniture {
         widthCm: (json['widthCm'] as num?)?.toDouble(),
         depthCm: (json['depthCm'] as num?)?.toDouble(),
         elevationCm: (json['elevationCm'] as num?)?.toDouble() ?? 0,
+        colorArgb: (json['colorArgb'] as num?)?.toInt(),
       );
 
   PlacedFurniture copy() => PlacedFurniture(
@@ -173,6 +183,7 @@ class PlacedFurniture {
         widthCm: widthCm,
         depthCm: depthCm,
         elevationCm: elevationCm,
+        colorArgb: colorArgb,
       );
 }
 
@@ -366,6 +377,7 @@ class FloorPlan {
     DateTime? updatedAt,
     this.unitsPerCm = 1,
     Map<String, String>? roomNames,
+    this.overlay,
   })  : levels = levels ??
             [
               PlanLevel(id: _uuid.v4(), name: 'Ground floor'),
@@ -382,6 +394,9 @@ class FloorPlan {
 
   /// Stable id → display name for detected rooms.
   final Map<String, String> roomNames;
+
+  /// SH3D-style imported floor-plan background image.
+  PlanOverlay? overlay;
 
   PlanLevel get activeLevel {
     if (levels.isEmpty) {
@@ -438,18 +453,27 @@ class FloorPlan {
         updatedAt: updatedAt,
         unitsPerCm: unitsPerCm,
         roomNames: Map<String, String>.from(roomNames),
+        overlay: overlay?.copy(),
       );
 
   Rect get bounds {
     final ws = walls;
     final fs = furniture;
-    if (ws.isEmpty && fs.isEmpty) {
+    final ov = overlay;
+    if (ws.isEmpty && fs.isEmpty && ov == null) {
       return const Rect.fromLTWH(0, 0, 600, 500);
     }
     var minX = double.infinity;
     var minY = double.infinity;
     var maxX = -double.infinity;
     var maxY = -double.infinity;
+    void expand(Rect r) {
+      minX = math.min(minX, r.left);
+      minY = math.min(minY, r.top);
+      maxX = math.max(maxX, r.right);
+      maxY = math.max(maxY, r.bottom);
+    }
+
     for (final w in ws) {
       minX = math.min(minX, math.min(w.start.dx, w.end.dx));
       minY = math.min(minY, math.min(w.start.dy, w.end.dy));
@@ -462,6 +486,8 @@ class FloorPlan {
       maxX = math.max(maxX, f.xCm + 50);
       maxY = math.max(maxY, f.yCm + 50);
     }
+    if (ov != null && ov.visible) expand(ov.planRectCm);
+    if (!minX.isFinite) return const Rect.fromLTWH(0, 0, 600, 500);
     return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
@@ -473,6 +499,7 @@ class FloorPlan {
         'activeLevelIndex': activeLevelIndex,
         'levels': levels.map((l) => l.toJson()).toList(),
         'roomNames': roomNames,
+        if (overlay != null) 'overlay': overlay!.toJson(),
         // legacy flat fields for older readers
         'walls': walls.map((w) => w.toJson()).toList(),
         'furniture': furniture.map((f) => f.toJson()).toList(),
@@ -506,6 +533,7 @@ class FloorPlan {
     }
 
     final namesRaw = json['roomNames'] as Map<String, dynamic>? ?? {};
+    final overlayJson = json['overlay'] as Map<String, dynamic>?;
     return FloorPlan(
       id: json['id'] as String,
       name: json['name'] as String? ?? 'Untitled',
@@ -515,6 +543,7 @@ class FloorPlan {
       activeLevelIndex: (json['activeLevelIndex'] as num?)?.toInt() ?? 0,
       levels: levels,
       roomNames: namesRaw.map((k, v) => MapEntry(k, v.toString())),
+      overlay: overlayJson == null ? null : PlanOverlay.fromJson(overlayJson),
     );
   }
 

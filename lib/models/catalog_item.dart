@@ -27,8 +27,15 @@ class CatalogItem {
   final String? sourceLibrary;
   final String? creator;
 
-  String get iconPath => 'assets/catalog/$iconAsset';
-  String get modelPath => 'assets/catalog/$modelAsset';
+  bool get isUserImport => iconAsset.startsWith('user:');
+
+  String get iconPath =>
+      isUserImport ? iconAsset : 'assets/catalog/$iconAsset';
+
+  String get modelPath =>
+      modelAsset.isEmpty ? '' : 'assets/catalog/$modelAsset';
+
+  bool get hasModel => modelAsset.isNotEmpty;
 
   String get categoryLabel {
     switch (category) {

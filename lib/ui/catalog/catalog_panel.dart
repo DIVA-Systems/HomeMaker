@@ -8,6 +8,8 @@ import '../../models/floor_plan.dart';
 import '../../state/providers.dart';
 import '../../theme/hm_colors.dart';
 import '../../units/length_units.dart';
+import 'catalog_icon.dart';
+import 'import_furniture_sheet.dart';
 
 class CatalogPanel extends ConsumerWidget {
   const CatalogPanel({
@@ -33,13 +35,24 @@ class CatalogPanel extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Furniture',
-                style: Theme.of(context).textTheme.titleLarge,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Furniture',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => showImportFurnitureSheet(context, ref),
+                    child: const Icon(CupertinoIcons.plus_circle, size: 26),
+                  ),
+                ],
               ),
               const SizedBox(height: 4),
               Text(
-                'Free models from Sweet Home 3D',
+                'Free SH3D models · drag onto plan · + to import',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 12),
@@ -125,11 +138,37 @@ class CatalogPanel extends ConsumerWidget {
                 itemBuilder: (context, index) {
                   final item = filtered[index];
                   final selected = editor.placingCatalogId == item.id;
-                  return _CatalogTile(
-                    item: item,
-                    selected: selected,
-                    unitSystem: ref.watch(appSettingsProvider).unitSystem,
-                    onTap: () => notifier.beginPlacing(item.id),
+                  return LongPressDraggable<String>(
+                    data: item.id,
+                    delay: const Duration(milliseconds: 180),
+                    feedback: Material(
+                      elevation: 8,
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        width: 96,
+                        height: 96,
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: CatalogIcon(item: item),
+                        ),
+                      ),
+                    ),
+                    childWhenDragging: Opacity(
+                      opacity: 0.35,
+                      child: _CatalogTile(
+                        item: item,
+                        selected: selected,
+                        unitSystem:
+                            ref.watch(appSettingsProvider).unitSystem,
+                        onTap: () => notifier.beginPlacing(item.id),
+                      ),
+                    ),
+                    child: _CatalogTile(
+                      item: item,
+                      selected: selected,
+                      unitSystem: ref.watch(appSettingsProvider).unitSystem,
+                      onTap: () => notifier.beginPlacing(item.id),
+                    ),
                   );
                 },
               );
@@ -185,14 +224,7 @@ class _CatalogTile extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                     child: ColoredBox(
                       color: HmColors.canvas.withValues(alpha: 0.65),
-                      child: Image.asset(
-                        item.iconPath,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => const Icon(
-                          Icons.weekend_outlined,
-                          color: HmColors.inkTertiary,
-                        ),
-                      ),
+                      child: CatalogIcon(item: item),
                     ),
                   ),
                 ),

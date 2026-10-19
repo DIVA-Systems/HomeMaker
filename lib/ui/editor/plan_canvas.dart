@@ -1,16 +1,24 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../data/app_settings.dart';
+import '../../geometry/plan_icon_renderer.dart';
+import '../../geometry/plan_symbol.dart';
 import '../../models/catalog_item.dart';
 import '../../models/floor_plan.dart';
 import '../../state/providers.dart';
 import '../../theme/hm_colors.dart';
 import '../../units/length_units.dart';
+import '../common/glass_surface.dart';
 
 const _uuid = Uuid();
 const _canvasSize = Size(3200, 2400);
@@ -31,10 +39,19 @@ class PlanCanvas extends ConsumerStatefulWidget {
   ConsumerState<PlanCanvas> createState() => _PlanCanvasState();
 }
 
-enum _GestureMode { none, pan, wall, dragFurniture, rotateFurniture, dragOpening }
+enum _GestureMode {
+  none,
+  pan,
+  wall,
+  dragFurniture,
+  rotateFurniture,
+  dragOpening,
+  dragWallEndpoint,
+}
 
 class _PlanCanvasState extends ConsumerState<PlanCanvas> {
   final _transform = TransformationController();
+  final _canvasKey = GlobalKey();
   Size _viewport = Size.zero;
   bool _didFit = false;
   int _lastFitNonce = -1;
@@ -45,6 +62,8 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
   String? _draggingFurnitureId;
   String? _rotatingFurnitureId;
   String? _draggingOpeningId;
+  String? _draggingWallId;
+  bool _draggingWallIsStart = true;
   Offset? _lastFocalScene;
   double _startScale = 1;
   Matrix4? _startMatrix;
@@ -52,6 +71,9 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
   bool _suppressNextTap = false;
 
   final Map<String, ui.Image> _iconCache = {};
+  ui.Image? _overlayImage;
+  String? _overlayFileLoaded;
+  Offset? _lastDoubleTap;
 
   EditorNotifier get _editor =>
       ref.read(editorProvider(widget.planSeed).notifier);
@@ -76,13 +98,38 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
   Future<void> _ensureIcon(CatalogItem item) async {
     if (_iconCache.containsKey(item.id)) return;
     try {
-      final data = await DefaultAssetBundle.of(context).load(item.iconPath);
-      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
-      final frame = await codec.getNextFrame();
-      _iconCache[item.id] = frame.image;
+      final image = await PlanIconRenderer.forItem(item);
+      _iconCache[item.id] = image;
       if (mounted) setState(() {});
     } catch (_) {}
   }
+
+  Future<void> _ensureOverlay(FloorPlan plan) async {
+    final o = plan.overlay;
+    if (o == null || !o.visible) {
+      if (_overlayImage != null) {
+        _overlayImage = null;
+        _overlayFileLoaded = null;
+      }
+      return;
+    }
+    if (_overlayFileLoaded == o.imageFileName && _overlayImage != null) return;
+    try {
+      final root = await getApplicationDocumentsDirectory();
+      final file = File(p.join(root.path, 'overlays', o.imageFileName));
+      if (!await file.exists()) return;
+      final bytes = await file.readAsBytes();
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      _overlayImage = frame.image;
+      _overlayFileLoaded = o.imageFileName;
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  static const _minZoom = 0.12;
+  static const _maxZoom = 8.0;
+  static const _zoomStep = 1.35;
 
   void _fitToPlan({bool force = false}) {
     if (_viewport == Size.zero) return;
@@ -105,6 +152,34 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
       ..scaleByDouble(scale, scale, scale, 1);
     _didFit = true;
     _lastFitNonce = widget.fitNonce;
+  }
+
+  /// Zoom toward [focal] in view space (defaults to viewport center).
+  void _zoomAt(double factor, {Offset? focal}) {
+    if (_viewport == Size.zero) return;
+    final m = Matrix4.copy(_transform.value);
+    final current = m.getMaxScaleOnAxis().clamp(_minZoom, _maxZoom);
+    final desired = (current * factor).clamp(_minZoom, _maxZoom);
+    if ((desired - current).abs() < 1e-6) return;
+    final f = desired / current;
+    final pivot = focal ?? Offset(_viewport.width / 2, _viewport.height / 2);
+    final planPivot =
+        MatrixUtils.transformPoint(Matrix4.inverted(m), pivot);
+    m
+      ..translateByDouble(planPivot.dx, planPivot.dy, 0, 1)
+      ..scaleByDouble(f, f, f, 1)
+      ..translateByDouble(-planPivot.dx, -planPivot.dy, 0, 1);
+    _transform.value = m;
+  }
+
+  void _zoomIn() => _zoomAt(_zoomStep);
+  void _zoomOut() => _zoomAt(1 / _zoomStep);
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    // Trackpad / mouse wheel — zoom toward cursor
+    final factor = event.scrollDelta.dy > 0 ? (1 / 1.12) : 1.12;
+    _zoomAt(factor, focal: event.localPosition);
   }
 
   Offset _sceneToPlan(Offset scene) {
@@ -140,6 +215,7 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
       final item = byId[f.catalogId];
       if (item != null) _ensureIcon(item);
     }
+    _ensureOverlay(state.plan);
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? HmColors.canvasDark : HmColors.canvas;
@@ -157,62 +233,119 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
             });
           }
 
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onScaleStart: (d) =>
-                _onScaleStart(d, state, catalog, settings.magnetism),
-            onScaleUpdate: (d) =>
-                _onScaleUpdate(d, state, catalog, settings.magnetism),
-            onScaleEnd: (_) => _onScaleEnd(state),
-            onTapUp: (d) => _onTap(d.localPosition, state, catalog),
-            onLongPress: () {
-              if (state.tool == EditorTool.wall) {
-                _editor.breakWallChain();
-              }
-            },
-            child: AnimatedBuilder(
-              animation: _transform,
-              builder: (context, _) {
-                return Stack(
-                  children: [
-                    Positioned.fill(
-                      child: ClipRect(
-                        child: Transform(
-                          transform: _transform.value,
-                          alignment: Alignment.topLeft,
-                          filterQuality: FilterQuality.low,
-                          child: CustomPaint(
-                            size: _canvasSize,
-                            isComplex: true,
-                            willChange: _mode != _GestureMode.none,
-                            painter: _PlanPainter(
-                              plan: state.plan,
-                              rooms: state.detectedRooms,
-                              catalog: byId,
-                              icons: _iconCache,
-                              selectedWallId: state.selectedWallId,
-                              selectedFurnitureId: state.selectedFurnitureId,
-                              selectedOpeningId: state.selectedOpeningId,
-                              draftStart: _wallStart,
-                              draftEnd: _wallCurrent,
-                              chainFrom: state.wallChainFrom,
-                              isDark: isDark,
-                              unitSystem: settings.unitSystem,
-                              showDimensions: settings.showDimensions,
+          return Listener(
+            onPointerSignal: _onPointerSignal,
+            child: DragTarget<String>(
+              onWillAcceptWithDetails: (_) => true,
+              onAcceptWithDetails: (details) {
+                final box =
+                    _canvasKey.currentContext?.findRenderObject() as RenderBox?;
+                if (box == null) return;
+                // details.offset is top-left of drag feedback; use center-ish.
+                final local = box.globalToLocal(
+                  details.offset + const Offset(46, 40),
+                );
+                final planPt = _snapPoint(_sceneToPlan(local));
+                CatalogItem? item;
+                for (final c in catalog) {
+                  if (c.id == details.data) item = c;
+                }
+                if (item == null) return;
+                _editor.placeFurniture(
+                  PlacedFurniture(
+                    id: _uuid.v4(),
+                    catalogId: item.id,
+                    xCm: planPt.dx,
+                    yCm: planPt.dy,
+                    widthCm: item.widthCm,
+                    depthCm: item.depthCm,
+                  ),
+                );
+              },
+              builder: (context, candidate, rejected) {
+                return GestureDetector(
+                  key: _canvasKey,
+                  behavior: HitTestBehavior.opaque,
+                  onScaleStart: (d) =>
+                      _onScaleStart(d, state, catalog, settings.magnetism),
+                  onScaleUpdate: (d) =>
+                      _onScaleUpdate(d, state, catalog, settings.magnetism),
+                  onScaleEnd: (_) => _onScaleEnd(state),
+                  onDoubleTapDown: (d) => _lastDoubleTap = d.localPosition,
+                  onDoubleTap: () {
+                    final at = _lastDoubleTap ??
+                        Offset(_viewport.width / 2, _viewport.height / 2);
+                    _zoomAt(_zoomStep, focal: at);
+                  },
+                  onTapUp: (d) => _onTap(d.localPosition, state, catalog),
+                  onLongPress: () {
+                    if (state.tool == EditorTool.wall) {
+                      _editor.breakWallChain();
+                    }
+                  },
+                  child: AnimatedBuilder(
+                    animation: _transform,
+                    builder: (context, _) {
+                      final zoom = _transform.value.getMaxScaleOnAxis();
+                      return Stack(
+                        children: [
+                          Positioned.fill(
+                            child: ClipRect(
+                              child: Transform(
+                                transform: _transform.value,
+                                alignment: Alignment.topLeft,
+                                filterQuality: FilterQuality.low,
+                                child: CustomPaint(
+                                  size: _canvasSize,
+                                  isComplex: true,
+                                  willChange: _mode != _GestureMode.none,
+                                  painter: _PlanPainter(
+                                    plan: state.plan,
+                                    rooms: state.detectedRooms,
+                                    catalog: byId,
+                                    icons: _iconCache,
+                                    overlayImage: _overlayImage,
+                                    selectedWallId: state.selectedWallId,
+                                    selectedFurnitureId:
+                                        state.selectedFurnitureId,
+                                    selectedOpeningId: state.selectedOpeningId,
+                                    draftStart: _wallStart,
+                                    draftEnd: _wallCurrent,
+                                    chainFrom: state.wallChainFrom,
+                                    isDark: isDark,
+                                    unitSystem: settings.unitSystem,
+                                    showDimensions: settings.showDimensions,
+                                    dropHighlight: candidate.isNotEmpty,
+                                    viewScale: zoom,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 12,
-                      bottom: 12,
-                      child: _CompassScaleOverlay(
-                        planScale: _transform.value.getMaxScaleOnAxis(),
-                        unitSystem: settings.unitSystem,
-                      ),
-                    ),
-                  ],
+                          Positioned(
+                            left: 12,
+                            bottom: 12,
+                            child: _CompassScaleOverlay(
+                              planScale: zoom,
+                              unitSystem: settings.unitSystem,
+                            ),
+                          ),
+                          Positioned(
+                            right: 12,
+                            bottom: 12,
+                            child: _ZoomControls(
+                              zoom: zoom,
+                              minZoom: _minZoom,
+                              maxZoom: _maxZoom,
+                              onZoomIn: _zoomIn,
+                              onZoomOut: _zoomOut,
+                              onFit: () => _fitToPlan(force: true),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
                 );
               },
             ),
@@ -255,6 +388,16 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
         _mode = _GestureMode.pan;
         return;
       case EditorTool.select:
+        // Wall endpoint handles (resize) — screen-sized hit so zoom feels right
+        final ep = _hitWallEndpoint(planPt, state);
+        if (ep != null) {
+          _mode = _GestureMode.dragWallEndpoint;
+          _draggingWallId = ep.$1;
+          _draggingWallIsStart = ep.$2;
+          _editor.selectWall(ep.$1);
+          _editor.beginGestureEdit();
+          return;
+        }
         // Rotate handle takes priority
         final rot = _hitRotateHandle(planPt, state, catalog);
         if (rot != null) {
@@ -279,7 +422,14 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
           _editor.selectFurniture(hit);
           _editor.beginGestureEdit();
         } else {
-          _mode = _GestureMode.pan;
+          // Prefer selecting a wall so handles appear
+          final wallHit = _hitWall(planPt, state.plan);
+          if (wallHit != null) {
+            _editor.selectWall(wallHit);
+            _mode = _GestureMode.pan;
+          } else {
+            _mode = _GestureMode.pan;
+          }
         }
         return;
     }
@@ -312,6 +462,40 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
       }
       _wallCurrent = end;
       setState(() {});
+      return;
+    }
+
+    if (_mode == _GestureMode.dragWallEndpoint && _draggingWallId != null) {
+      var p = _snapPoint(_sceneToPlan(d.localFocalPoint));
+      if (magnetism) {
+        for (final w in state.plan.walls) {
+          if (w.id == _draggingWallId) continue;
+          for (final ep in [w.start, w.end]) {
+            if ((ep - p).distance <= _chainTol) {
+              p = ep;
+              break;
+            }
+          }
+        }
+        // Ortho assist vs the fixed end
+        final wall = state.plan.walls
+            .cast<Wall?>()
+            .firstWhere((w) => w?.id == _draggingWallId, orElse: () => null);
+        if (wall != null) {
+          final fixed = _draggingWallIsStart ? wall.end : wall.start;
+          final delta = p - fixed;
+          if (delta.dx.abs() < 15) {
+            p = Offset(fixed.dx, p.dy);
+          } else if (delta.dy.abs() < 15) {
+            p = Offset(p.dx, fixed.dy);
+          }
+        }
+      }
+      _editor.moveWallEndpoint(
+        wallId: _draggingWallId!,
+        isStart: _draggingWallIsStart,
+        point: p,
+      );
       return;
     }
 
@@ -354,7 +538,7 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
     if (_startMatrix == null) return;
 
     if (d.pointerCount >= 2 || (d.scale - 1.0).abs() > 0.008) {
-      final desired = (_startScale * d.scale).clamp(0.15, 6.0);
+      final desired = (_startScale * d.scale).clamp(_minZoom, _maxZoom);
       final m = Matrix4.copy(_startMatrix!);
       final factor = desired / m.getMaxScaleOnAxis();
       final focal = d.localFocalPoint;
@@ -394,14 +578,16 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
 
     if (_mode == _GestureMode.dragFurniture ||
         _mode == _GestureMode.rotateFurniture ||
-        _mode == _GestureMode.dragOpening) {
+        _mode == _GestureMode.dragOpening ||
+        _mode == _GestureMode.dragWallEndpoint) {
       _editor.endGestureEdit();
     }
 
     if (_gestureTravel > 12 ||
         _mode == _GestureMode.dragFurniture ||
         _mode == _GestureMode.wall ||
-        _mode == _GestureMode.rotateFurniture) {
+        _mode == _GestureMode.rotateFurniture ||
+        _mode == _GestureMode.dragWallEndpoint) {
       _suppressNextTap = true;
     }
 
@@ -411,6 +597,7 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
     _draggingFurnitureId = null;
     _rotatingFurnitureId = null;
     _draggingOpeningId = null;
+    _draggingWallId = null;
     _startMatrix = null;
     _lastFocalScene = null;
     _gestureTravel = 0;
@@ -510,6 +697,12 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
     }
 
     if (state.tool == EditorTool.select) {
+      // Double-purpose: tap selected wall's mid label → edit length
+      if (state.selectedWallId != null &&
+          _hitWallDimension(planPt, state) == state.selectedWallId) {
+        _showWallLengthDialog(state.selectedWallId!);
+        return;
+      }
       final open = _hitOpening(planPt, state);
       if (open != null) {
         _editor.selectOpening(open);
@@ -527,11 +720,104 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
       }
       final hitW = _hitWall(planPt, state.plan);
       if (hitW != null) {
-        _editor.selectWall(hitW);
+        if (hitW == state.selectedWallId) {
+          _showWallLengthDialog(hitW);
+        } else {
+          _editor.selectWall(hitW);
+        }
         return;
       }
       _editor.clearSelection();
     }
+  }
+
+  /// Returns (wallId, isStart) when near an endpoint handle.
+  (String, bool)? _hitWallEndpoint(Offset p, EditorState state) {
+    final scale = _transform.value.getMaxScaleOnAxis();
+    final slop = math.max(16.0, 22.0 / scale);
+    // Prefer selected wall's handles
+    final ordered = [
+      ...state.plan.walls.where((w) => w.id == state.selectedWallId),
+      ...state.plan.walls.where((w) => w.id != state.selectedWallId),
+    ];
+    for (final w in ordered) {
+      if ((w.start - p).distance <= slop) return (w.id, true);
+      if ((w.end - p).distance <= slop) return (w.id, false);
+    }
+    return null;
+  }
+
+  String? _hitWallDimension(Offset p, EditorState state) {
+    final id = state.selectedWallId;
+    if (id == null) return null;
+    Wall? wall;
+    for (final w in state.plan.walls) {
+      if (w.id == id) wall = w;
+    }
+    if (wall == null) return null;
+    final mid = Offset(
+      (wall.start.dx + wall.end.dx) / 2,
+      (wall.start.dy + wall.end.dy) / 2,
+    );
+    final n = _wallNormalLocal(wall);
+    final labelAt = mid + n * 18;
+    final scale = _transform.value.getMaxScaleOnAxis();
+    final slop = math.max(28.0, 36.0 / scale);
+    if ((labelAt - p).distance <= slop) return id;
+    return null;
+  }
+
+  Offset _wallNormalLocal(Wall w) {
+    final d = w.end - w.start;
+    final len = d.distance;
+    if (len < 1e-6) return const Offset(0, -1);
+    return Offset(-d.dy / len, d.dx / len);
+  }
+
+  Future<void> _showWallLengthDialog(String wallId) async {
+    final state = ref.read(editorProvider(widget.planSeed));
+    final wall = state.plan.walls
+        .cast<Wall?>()
+        .firstWhere((w) => w?.id == wallId, orElse: () => null);
+    if (wall == null || !mounted) return;
+    final units = ref.read(appSettingsProvider).unitSystem;
+    final controller = TextEditingController(
+      text: Units.formatLength(wall.lengthCm, units),
+    );
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Wall length'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            hintText: units == LengthUnitSystem.imperial
+                ? 'e.g. 12\' 6" or 12.5'
+                : 'e.g. 3.5 or 350',
+            helperText: units == LengthUnitSystem.imperial
+                ? 'Feet / inches, or decimal feet'
+                : 'Meters or centimeters',
+          ),
+          onSubmitted: (_) => Navigator.pop(ctx, true),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Resize'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final cm = Units.parseLengthToCm(controller.text, units);
+    if (cm == null) return;
+    _editor.setWallLength(wallId, cm);
   }
 
   (Wall, double)? _nearestWall(Offset p, FloorPlan plan) {
@@ -637,6 +923,106 @@ class _PlanCanvasState extends ConsumerState<PlanCanvas> {
       if (dist <= threshold) return w.id;
     }
     return null;
+  }
+}
+
+class _ZoomControls extends StatelessWidget {
+  const _ZoomControls({
+    required this.zoom,
+    required this.minZoom,
+    required this.maxZoom,
+    required this.onZoomIn,
+    required this.onZoomOut,
+    required this.onFit,
+  });
+
+  final double zoom;
+  final double minZoom;
+  final double maxZoom;
+  final VoidCallback onZoomIn;
+  final VoidCallback onZoomOut;
+  final VoidCallback onFit;
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = (zoom * 100).round().clamp(1, 999);
+    final canIn = zoom < maxZoom - 1e-3;
+    final canOut = zoom > minZoom + 1e-3;
+
+    return GlassSurface(
+      borderRadius: 14,
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ZoomBtn(
+            icon: CupertinoIcons.plus,
+            tooltip: 'Zoom in',
+            enabled: canIn,
+            onTap: onZoomIn,
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Text(
+              '$pct%',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: HmColors.inkSecondary,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+            ),
+          ),
+          _ZoomBtn(
+            icon: CupertinoIcons.minus,
+            tooltip: 'Zoom out',
+            enabled: canOut,
+            onTap: onZoomOut,
+          ),
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            width: 28,
+            height: 1,
+            color: HmColors.hairline,
+          ),
+          _ZoomBtn(
+            icon: Icons.fit_screen_outlined,
+            tooltip: 'Fit plan',
+            enabled: true,
+            onTap: onFit,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ZoomBtn extends StatelessWidget {
+  const _ZoomBtn({
+    required this.icon,
+    required this.tooltip,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        minimumSize: const Size(40, 40),
+        onPressed: enabled ? onTap : null,
+        child: Icon(
+          icon,
+          size: 20,
+          color: enabled ? HmColors.spruce : HmColors.inkTertiary,
+        ),
+      ),
+    );
   }
 }
 
@@ -751,6 +1137,7 @@ class _PlanPainter extends CustomPainter {
     required this.rooms,
     required this.catalog,
     required this.icons,
+    required this.overlayImage,
     required this.selectedWallId,
     required this.selectedFurnitureId,
     required this.selectedOpeningId,
@@ -760,12 +1147,17 @@ class _PlanPainter extends CustomPainter {
     required this.isDark,
     required this.unitSystem,
     required this.showDimensions,
+    this.dropHighlight = false,
+    this.viewScale = 1,
   });
 
   final FloorPlan plan;
   final List<PlanRoom> rooms;
   final Map<String, CatalogItem> catalog;
   final Map<String, ui.Image> icons;
+  final bool dropHighlight;
+  final double viewScale;
+  final ui.Image? overlayImage;
   final String? selectedWallId;
   final String? selectedFurnitureId;
   final String? selectedOpeningId;
@@ -780,6 +1172,20 @@ class _PlanPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final gridColor = isDark ? HmColors.canvasGridDark : HmColors.canvasGrid;
     _drawGrid(canvas, size, gridColor);
+
+    // SH3D BackgroundImage — under walls
+    final ov = plan.overlay;
+    if (ov != null && ov.visible && overlayImage != null) {
+      final rect = ov.planRectCm;
+      paintImage(
+        canvas: canvas,
+        rect: rect,
+        image: overlayImage!,
+        fit: BoxFit.fill,
+        opacity: ov.opacity,
+        filterQuality: FilterQuality.medium,
+      );
+    }
 
     // Rooms
     for (var i = 0; i < rooms.length; i++) {
@@ -809,16 +1215,25 @@ class _PlanPainter extends CustomPainter {
             ..style = PaintingStyle.stroke,
         );
       }
-      canvas.drawCircle(
-        w.start,
-        selected ? 6 : 4.5,
-        Paint()..color = selected ? HmColors.spruceSoft : HmColors.wall,
-      );
-      canvas.drawCircle(
-        w.end,
-        selected ? 6 : 4.5,
-        Paint()..color = selected ? HmColors.spruceSoft : HmColors.wall,
-      );
+      if (selected) {
+        // Resize handles (drag endpoints to lengthen / shorten)
+        final handleR = math.max(9.0, 11.0 / viewScale);
+        for (final ep in [w.start, w.end]) {
+          canvas.drawCircle(ep, handleR + 2, Paint()..color = Colors.white);
+          canvas.drawCircle(
+            ep,
+            handleR + 2,
+            Paint()
+              ..color = HmColors.spruce
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 2.4,
+          );
+          canvas.drawCircle(ep, handleR * 0.35, Paint()..color = HmColors.spruce);
+        }
+      } else {
+        canvas.drawCircle(w.start, 4.5, Paint()..color = HmColors.wall);
+        canvas.drawCircle(w.end, 4.5, Paint()..color = HmColors.wall);
+      }
 
       if (showDimensions) {
         final mid =
@@ -886,6 +1301,13 @@ class _PlanPainter extends CustomPainter {
 
     for (final f in plan.furniture) {
       _drawFurniture(canvas, f, f.id == selectedFurnitureId);
+    }
+
+    if (dropHighlight) {
+      canvas.drawRect(
+        Offset.zero & size,
+        Paint()..color = HmColors.spruce.withValues(alpha: 0.08),
+      );
     }
   }
 
@@ -1051,54 +1473,44 @@ class _PlanPainter extends CustomPainter {
     canvas.rotate(f.rotationDeg * math.pi / 180);
 
     final rect = Rect.fromCenter(center: Offset.zero, width: w, height: d);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, const Radius.circular(6)),
-      Paint()
-        ..color = selected
-            ? HmColors.spruce.withValues(alpha: 0.2)
-            : (isDark ? const Color(0xFF2A2E2A) : Colors.white)
-                .withValues(alpha: 0.95),
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, const Radius.circular(6)),
-      Paint()
-        ..color = selected ? HmColors.selection : HmColors.hairline
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = selected ? 3 : 1.4,
-    );
-    canvas.drawLine(
-      Offset(-w / 2 + 4, d / 2 - 2),
-      Offset(w / 2 - 4, d / 2 - 2),
-      Paint()
-        ..color = HmColors.spruce.withValues(alpha: 0.55)
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round,
-    );
-
     final icon = icons[f.catalogId];
+
+    // SH3D paintPieceOfFurnitureTop: stretch top-view icon to width × depth.
     if (icon != null) {
       paintImage(
         canvas: canvas,
-        rect: rect.deflate(5),
+        rect: rect,
         image: icon,
-        fit: BoxFit.contain,
+        fit: BoxFit.fill,
         filterQuality: FilterQuality.medium,
       );
+      if (f.materialColor != null) {
+        canvas.drawRect(
+          rect,
+          Paint()
+            ..color = f.materialColor!.withValues(alpha: 0.28)
+            ..blendMode = BlendMode.srcATop,
+        );
+      }
+      if (selected) {
+        canvas.drawRect(
+          rect,
+          Paint()
+            ..color = HmColors.selection
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = math.max(2.0, 2.5 / viewScale),
+        );
+      }
     } else {
-      final tp = TextPainter(
-        text: TextSpan(
-          text: item?.name ?? 'Item',
-          style: TextStyle(
-            color: isDark ? HmColors.inkDark : HmColors.ink,
-            fontSize: math.min(14, w / 6),
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-        maxLines: 2,
-        ellipsis: '…',
-      )..layout(maxWidth: w - 8);
-      tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+      PlanSymbolPainter.paint(
+        canvas,
+        item: item,
+        widthCm: w,
+        depthCm: d,
+        selected: selected,
+        isDark: isDark,
+        tint: f.materialColor,
+      );
     }
 
     if (selected) {

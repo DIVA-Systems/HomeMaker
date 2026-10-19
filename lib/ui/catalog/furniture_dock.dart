@@ -2,11 +2,15 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/app_settings.dart';
 import '../../models/catalog_item.dart';
 import '../../models/floor_plan.dart';
 import '../../state/providers.dart';
 import '../../theme/hm_colors.dart';
+import '../../units/length_units.dart';
+import 'catalog_icon.dart';
 import 'catalog_panel.dart';
+import 'import_furniture_sheet.dart';
 
 /// Always-visible furniture strip for phones (SH3D-style catalog access).
 class FurnitureDock extends ConsumerWidget {
@@ -100,6 +104,11 @@ class FurnitureDock extends ConsumerWidget {
                   ),
                 ),
                 CupertinoButton(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  onPressed: () => showImportFurnitureSheet(context, ref),
+                  child: const Icon(CupertinoIcons.plus_circle, size: 22),
+                ),
+                CupertinoButton(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: () => _openFullCatalog(context),
                   child: Text(
@@ -113,12 +122,13 @@ class FurnitureDock extends ConsumerWidget {
             ),
           ),
           SizedBox(
-            height: 108,
+            height: 122,
             child: catalogAsync.when(
               loading: () => const Center(child: CupertinoActivityIndicator()),
               error: (e, _) => Center(child: Text('$e')),
               data: (items) {
                 final key = editor.category.jsonKey;
+                final units = ref.watch(appSettingsProvider).unitSystem;
                 final filtered = items
                     .where((i) => key == null || i.category == key)
                     .toList();
@@ -133,6 +143,7 @@ class FurnitureDock extends ConsumerWidget {
                     return _DockTile(
                       item: item,
                       selected: selected,
+                      unitSystem: units,
                       onTap: () => notifier.beginPlacing(item.id),
                     );
                   },
@@ -152,23 +163,25 @@ class _DockTile extends StatelessWidget {
     required this.item,
     required this.selected,
     required this.onTap,
+    required this.unitSystem,
   });
 
   final CatalogItem item;
   final bool selected;
   final VoidCallback onTap;
+  final LengthUnitSystem unitSystem;
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
+    final tile = Semantics(
       button: true,
-      label: item.name,
+      label: '${item.name}, ${Units.formatSize2d(item.widthCm, item.depthCm, unitSystem)}',
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          width: 88,
+          width: 92,
           padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
             color: selected
@@ -182,25 +195,46 @@ class _DockTile extends StatelessWidget {
           ),
           child: Column(
             children: [
-              Expanded(
-                child: Image.asset(
-                  item.iconPath,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.weekend_outlined, size: 28),
-                ),
-              ),
-              const SizedBox(height: 4),
+              Expanded(child: CatalogIcon(item: item)),
+              const SizedBox(height: 2),
               Text(
                 item.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall,
               ),
+              Text(
+                Units.formatSize2d(item.widthCm, item.depthCm, unitSystem),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: HmColors.inkTertiary,
+                      fontSize: 10,
+                    ),
+              ),
             ],
           ),
         ),
       ),
+    );
+
+    return LongPressDraggable<String>(
+      data: item.id,
+      delay: const Duration(milliseconds: 180),
+      feedback: Material(
+        elevation: 6,
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          width: 88,
+          height: 88,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: CatalogIcon(item: item),
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.35, child: tile),
+      child: tile,
     );
   }
 }

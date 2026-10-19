@@ -8,6 +8,7 @@ import '../data/plan_storage.dart';
 import '../geometry/room_detection.dart';
 import '../models/catalog_item.dart';
 import '../models/floor_plan.dart';
+import '../models/plan_overlay.dart';
 
 const _uuid = Uuid();
 
@@ -308,6 +309,77 @@ class EditorNotifier extends StateNotifier<EditorState> {
     _commit(plan, redetectRooms: false);
   }
 
+  /// Move a wall endpoint. Coincident corners of other walls move too
+  /// (keeps rooms joined — SH3D-style vertex edit).
+  void moveWallEndpoint({
+    required String wallId,
+    required bool isStart,
+    required Offset point,
+    bool joinNeighbors = true,
+  }) {
+    final plan = state.plan.copy();
+    final i = plan.walls.indexWhere((w) => w.id == wallId);
+    if (i < 0) return;
+    final wall = plan.walls[i];
+    final old = isStart ? wall.start : wall.end;
+    final next = point;
+    if (isStart) {
+      wall.start = next;
+    } else {
+      wall.end = next;
+    }
+    // Keep minimum length
+    if (wall.lengthCm < 15) {
+      if (isStart) {
+        wall.start = old;
+      } else {
+        wall.end = old;
+      }
+      return;
+    }
+    if (joinNeighbors) {
+      const tol = 2.5;
+      for (final w in plan.walls) {
+        if (w.id == wallId) continue;
+        if ((w.start - old).distance <= tol) w.start = next;
+        if ((w.end - old).distance <= tol) w.end = next;
+      }
+    }
+    _commit(plan, redetectRooms: false);
+  }
+
+  /// Set wall length from [anchor] end (true = keep start fixed).
+  void setWallLength(String wallId, double lengthCm, {bool fromStart = true}) {
+    final plan = state.plan.copy();
+    final i = plan.walls.indexWhere((w) => w.id == wallId);
+    if (i < 0) return;
+    final wall = plan.walls[i];
+    final len = wall.lengthCm;
+    if (len < 1e-3) return;
+    final dir = (wall.end - wall.start) / len;
+    final L = lengthCm.clamp(20.0, 5000.0);
+    if (fromStart) {
+      final oldEnd = wall.end;
+      wall.end = wall.start + dir * L;
+      const tol = 2.5;
+      for (final w in plan.walls) {
+        if (w.id == wallId) continue;
+        if ((w.start - oldEnd).distance <= tol) w.start = wall.end;
+        if ((w.end - oldEnd).distance <= tol) w.end = wall.end;
+      }
+    } else {
+      final oldStart = wall.start;
+      wall.start = wall.end - dir * L;
+      const tol = 2.5;
+      for (final w in plan.walls) {
+        if (w.id == wallId) continue;
+        if ((w.start - oldStart).distance <= tol) w.start = wall.start;
+        if ((w.end - oldStart).distance <= tol) w.end = wall.start;
+      }
+    }
+    _commit(plan);
+  }
+
   void beginGestureEdit() {
     if (_batching) return;
     _pushHistory();
@@ -316,9 +388,11 @@ class EditorNotifier extends StateNotifier<EditorState> {
 
   void endGestureEdit() {
     _batching = false;
+    // Re-run room detection after wall/furniture gestures.
     state = state.copyWith(
       canUndo: _undo.isNotEmpty,
       canRedo: _redo.isNotEmpty,
+      detectedRooms: detectRooms(state.plan.walls, names: state.plan.roomNames),
     );
   }
 
@@ -385,6 +459,28 @@ class EditorNotifier extends StateNotifier<EditorState> {
     final i = state.plan.furniture.indexWhere((f) => f.id == id);
     if (i < 0) return;
     setSelectedElevation(state.plan.furniture[i].elevationCm + deltaCm);
+  }
+
+  void setSelectedMaterialColor(int? colorArgb) {
+    final id = state.selectedFurnitureId;
+    if (id == null) return;
+    _pushHistory();
+    final plan = state.plan.copy();
+    final i = plan.furniture.indexWhere((f) => f.id == id);
+    if (i < 0) return;
+    plan.furniture[i].colorArgb = colorArgb;
+    _commit(plan, redetectRooms: false);
+  }
+
+  void replacePlan(FloorPlan plan) {
+    _undo.clear();
+    _redo.clear();
+    final copy = plan.copy();
+    state = EditorState(
+      plan: copy,
+      dirty: true,
+      detectedRooms: detectRooms(copy.walls, names: copy.roomNames),
+    );
   }
 
   void placeStair(StairFlight stair) {
@@ -494,6 +590,33 @@ class EditorNotifier extends StateNotifier<EditorState> {
     final plan = state.plan.copy();
     plan.name = name.trim().isEmpty ? plan.name : name.trim();
     _commit(plan);
+  }
+
+  void setOverlay(PlanOverlay? overlay) {
+    _pushHistory();
+    final plan = state.plan.copy();
+    plan.overlay = overlay;
+    _commit(plan, redetectRooms: false);
+  }
+
+  void clearOverlay() => setOverlay(null);
+
+  void setOverlayVisible(bool visible) {
+    final o = state.plan.overlay;
+    if (o == null) return;
+    _pushHistory();
+    final plan = state.plan.copy();
+    plan.overlay = o.copy()..visible = visible;
+    _commit(plan, redetectRooms: false);
+  }
+
+  void setOverlayOpacity(double opacity) {
+    final o = state.plan.overlay;
+    if (o == null) return;
+    _pushHistory();
+    final plan = state.plan.copy();
+    plan.overlay = o.copy()..opacity = opacity.clamp(0.1, 1.0);
+    _commit(plan, redetectRooms: false);
   }
 
   Future<void> save() async {
